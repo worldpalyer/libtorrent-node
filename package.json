@@ -1,0 +1,39 @@
+{
+  "name": "libtorrent-node",
+  "version": "0.1.5",
+  "description": "A node binding for libtorrent",
+  "main": "lib/libtorrent.js",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/worldplayer/libtorrent-node.git"
+  },
+  "author": "Centny",
+  "license": "GPL-3.0",
+  "gypfile": true,
+  "dependencies": {},
+  "devDependencies": {
+    "chai": "^3.5.0",
+    "express": "^4.15.2",
+    "istanbul": "^0.4.5",
+    "jshint": "^2.9.4",
+    "mocha": "^3.2.0",
+    "optimist": "^0.6.1"
+  },
+  "scripts": {
+    "install": "node-gyp rebuild",
+    "prj": "script/prj.sh",
+    "build": "node-gyp rebuild",
+    "test": "node test/run.js"
+  },
+  "bugs": {
+    "url": "https://github.com/worldplayer/libtorrent-node/issues"
+  },
+  "homepage": "https://github.com/worldplayer/libtorrent-node",
+  "directories": {
+    "test": "test"
+  },
+  "keywords": [
+    "libtorrent",
+    "node"
+  ]
+}
