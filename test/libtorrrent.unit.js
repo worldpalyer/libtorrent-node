@@ -7,13 +7,15 @@ describe('libtorrent', function () {
     it("libtorrent", function (done) {
         exec('rm -rf /tmp/abc', console.log);
         exec('mkdir /tmp/abc', console.log);
+        console.log(lt.read_torrent({ ti: "/tmp/a.torrent" }));
         lt.bootstrap({
             name: "libtorrent-node",
         });
         var task = lt.add_torrent({
-            ti: "/Users/vty/Downloads/b.torrent",
+            ti: "/tmp/a.torrent",
             // magnet_uri: "magnet:?xt=urn:btih:901141ac0780a99079726eb73999d2ea20f5d5a0",
             save_path: "/tmp/abc",
+            selected: [0],
         });
         task.status.pieces = null;
         console.log(task);

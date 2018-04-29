@@ -144,6 +144,49 @@ Local<Object> parse_torrent_handle(Isolate *isolate, lt::torrent_handle &th)
     return result;
 }
 
+void read_torrent(const FunctionCallbackInfo<Value> &args)
+{
+    Isolate *isolate = args.GetIsolate();
+    if (!(args.Length() > 0 && args[0]->IsObject()))
+    {
+        StringException(isolate, "libtorrent read torrent receive wrong arguments");
+        return;
+    }
+    Local<Object> vargs = args[0]->ToObject();
+    //
+    Local<Value> ti_v = vargs->Get(String::NewFromUtf8(isolate, "ti"));
+    if (!ti_v->IsString())
+    {
+        StringException(isolate, "libtorrent read torrent fail with args.ti is not string");
+        return;
+    }
+    std::string ti;
+    String::Utf8Value ti_s(ti_v->ToString());
+    ti = std::string(*ti_s, ti_s.length());
+    lt::error_code ec;
+    auto torrent = std::make_shared<lt::torrent_info>(ti, ec);
+    if (ec)
+    {
+        std::string msg = "read torrent info from " + ti + " fail with " + ec.message();
+        StringException(isolate, msg.c_str());
+        return;
+    }
+    int fc = torrent->num_files();
+    Local<Array> fs = Array::New(isolate, fc);
+    for (int i = 0; i < fc; i++)
+    {
+        lt::file_index_t idx(i);
+        Local<Object> f = Object::New(isolate);
+        const char *fname = torrent->files().file_name(idx).to_string().c_str();
+        f->Set(String::NewFromUtf8(isolate, "file_name"), String::NewFromUtf8(isolate, fname));
+        auto fsize = torrent->files().file_size(idx);
+        f->Set(String::NewFromUtf8(isolate, "file_size"), Number::New(isolate, (uint32_t)fsize));
+        f->Set(String::NewFromUtf8(isolate, "file_size_h"), Number::New(isolate, (uint32_t)(fsize >> 32)));
+        fs->Set(i, f);
+    }
+    args.GetReturnValue().Set(fs);
+}
+
 void add_torrent(const FunctionCallbackInfo<Value> &args)
 {
     Isolate *isolate = args.GetIsolate();
@@ -172,7 +215,7 @@ void add_torrent(const FunctionCallbackInfo<Value> &args)
     lt::error_code ec;
     lt::add_torrent_params params;
     Local<Value> ti_v = vargs->Get(String::NewFromUtf8(isolate, "ti"));
-    Local<Value> magnet_uri_v = vargs->Get(String::NewFromUtf8(isolate, "magnet_uri"));
+    // Local<Value> magnet_uri_v = vargs->Get(String::NewFromUtf8(isolate, "magnet_uri"));
     if (ti_v->IsString())
     {
         std::string ti;
@@ -186,19 +229,19 @@ void add_torrent(const FunctionCallbackInfo<Value> &args)
             return;
         }
     }
-    else if (magnet_uri_v->IsString())
-    {
-        std::string magnet_uri;
-        String::Utf8Value magnet_uri_s(magnet_uri_v->ToString());
-        magnet_uri = std::string(*magnet_uri_s, magnet_uri_s.length());
-        params = lt::parse_magnet_uri(lt::string_view(magnet_uri), ec);
-        if (ec)
-        {
-            std::string msg = "parse magnet uri " + magnet_uri + " fail with " + ec.message();
-            StringException(isolate, msg.c_str());
-            return;
-        }
-    }
+    // else if (magnet_uri_v->IsString())
+    // {
+    //     std::string magnet_uri;
+    //     String::Utf8Value magnet_uri_s(magnet_uri_v->ToString());
+    //     magnet_uri = std::string(*magnet_uri_s, magnet_uri_s.length());
+    //     params = lt::parse_magnet_uri(lt::string_view(magnet_uri), ec);
+    //     if (ec)
+    //     {
+    //         std::string msg = "parse magnet uri " + magnet_uri + " fail with " + ec.message();
+    //         StringException(isolate, msg.c_str());
+    //         return;
+    //     }
+    // }
     else
     {
         StringException(isolate, "libtorrent add torrent fail with args.ti is not string");
@@ -207,12 +250,29 @@ void add_torrent(const FunctionCallbackInfo<Value> &args)
 
     //
     params.save_path = save_path;
+    params.flags &= lt::torrent_flags::need_save_resume;
     lt::torrent_handle th = XL.session->add_torrent(params, ec);
     if (ec)
     {
         std::string msg = "add torrent fail with " + ec.message();
         StringException(isolate, msg.c_str());
         return;
+    }
+    Local<Value> selected_v = vargs->Get(String::NewFromUtf8(isolate, "selected"));
+    if (selected_v->IsArray())
+    {
+        auto selected = Local<Array>::Cast(selected_v);
+        auto ssize = (int)selected->Length();
+        for (int k = 0; k < params.ti->num_files(); k++)
+        {
+            th.file_priority(lt::file_index_t(k), 0);
+        }
+        for (int i = 0; i < ssize; i++)
+        {
+            auto sval = selected->Get(i);
+            uint32_t sint = sval->Uint32Value();
+            th.file_priority(lt::file_index_t(sint), 7);
+        }
     }
     args.GetReturnValue().Set(parse_torrent_handle(isolate, th));
 }
@@ -388,16 +448,37 @@ void list_torrent(const FunctionCallbackInfo<Value> &args)
     args.GetReturnValue().Set(torrents);
 }
 
+void save_resume(const FunctionCallbackInfo<Value> &args)
+{
+    std::vector<lt::torrent_status> const temp = XL.session->get_torrent_status(
+        [](lt::torrent_status const &st) {
+            if (!st.handle.is_valid())
+                return false;
+            if (!st.has_metadata)
+                return false;
+            if (!st.need_save_resume)
+                return false;
+            return true;
+        },
+        {});
+    for (auto const &st : temp)
+    {
+        st.handle.save_resume_data(torrent_handle::save_info_dict);
+    }
+}
+
 void init(Local<Object> exports)
 {
     NODE_SET_METHOD(exports, "bootstrap", bootstrap);
     NODE_SET_METHOD(exports, "shutdown", shutdown);
+    NODE_SET_METHOD(exports, "read_torrent", read_torrent);
     NODE_SET_METHOD(exports, "add_torrent", add_torrent);
     NODE_SET_METHOD(exports, "list_torrent", list_torrent);
     NODE_SET_METHOD(exports, "find_torrent", find_torrent);
     NODE_SET_METHOD(exports, "pause_torrent", pause_torrent);
     NODE_SET_METHOD(exports, "resume_torrent", resume_torrent);
-    NODE_SET_METHOD(exports, "remove_torrent", resume_torrent);
+    NODE_SET_METHOD(exports, "remove_torrent", remove_torrent);
+    NODE_SET_METHOD(exports, "save_resume", save_resume);
 }
 
 NODE_MODULE(libtorrent, init);
